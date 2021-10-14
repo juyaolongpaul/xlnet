@@ -13,8 +13,7 @@ import absl.logging as _logging  # pylint: disable=unused-import
 
 import numpy as np
 
-
-import tensorflow as tf
+import tensorflow._api.v2.compat.v1 as tf
 
 from prepro_utils import preprocess_text, encode_ids
 import sentencepiece as spm
@@ -31,6 +30,43 @@ special_symbols = {
     "<eod>"  : 7,
     "<eop>"  : 8,
 }
+
+
+idx2chord = ['C', 'C:min', 'C#', 'C#:min', 'D', 'D:min', 'D#', 'D#:min', 'E', 'E:min', 'F', 'F:min', 'F#',
+             'F#:min', 'G', 'G:min', 'G#', 'G#:min', 'A', 'A:min', 'A#', 'A#:min', 'B', 'B:min', 'N']
+
+root_list = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
+quality_list = ['min', 'maj', 'dim', 'aug', 'min6', 'maj6', 'min7', 'minmaj7', 'maj7', '7', 'dim7', 'hdim7', 'sus2', 'sus4']
+quality_list_simplified = ['min', 'maj', 'dim', 'aug']
+
+def get_root_quality_combination(idx2voca_chord, root_list, quality_list):
+    for i in range(len(quality_list) * len(root_list)):
+        root = i // len(quality_list)
+        root = root_list[root]
+        quality = i % len(quality_list)
+        quality = quality_list[quality]
+        if i % len(quality_list) != 1:
+            chord = root + ':' + quality
+        else:
+            chord = root
+        idx2voca_chord[i] = chord
+    return idx2voca_chord
+
+
+
+def idx2voca_chord_simplified():
+    idx2voca_chord = {}
+    idx2voca_chord[52] = 'PAD'
+    idx2voca_chord[51] = 'EOS'
+    idx2voca_chord[50] = 'BOS'
+    idx2voca_chord[49] = 'N'
+    idx2voca_chord[48] = 'X'
+    idx2voca_chord = get_root_quality_combination(idx2voca_chord, root_list, quality_list_simplified)
+    return idx2voca_chord
+
+chars = list(idx2voca_chord_simplified().values())
+chord_dict = {ch: i for i, ch in enumerate(chars)}
+
 
 VOCAB_SIZE = 32000
 UNK_ID = special_symbols["<unk>"]
@@ -78,8 +114,8 @@ def format_filename(prefix, bsz_per_host, seq_len, bi_data, suffix,
 
 def _create_data(idx, input_paths):
   # Load sentence-piece model
-  sp = spm.SentencePieceProcessor()
-  sp.Load(FLAGS.sp_path)
+  # sp = spm.SentencePieceProcessor()
+  # sp.Load(FLAGS.sp_path)
 
   input_shards = []
   total_line_cnt = 0
@@ -100,8 +136,7 @@ def _create_data(idx, input_paths):
           continue
       else:
         if FLAGS.from_raw_text:
-          cur_sent = preprocess_text(line.strip(), lower=FLAGS.uncased)
-          cur_sent = encode_ids(sp, cur_sent)
+          cur_sent = [chord_dict[each_chord] for each_chord in line.split()]
         else:
           cur_sent = list(map(int, line.strip().split()))
 
@@ -156,8 +191,7 @@ def _create_data(idx, input_paths):
       data=[input_data, sent_ids],
       bsz_per_host=FLAGS.bsz_per_host,
       seq_len=FLAGS.seq_len,
-      bi_data=FLAGS.bi_data,
-      sp=sp,
+      bi_data=FLAGS.bi_data, sp=None
   )
 
   filenames.append(file_name)
@@ -357,7 +391,7 @@ def _sample_mask(sp, seg, reverse=False, max_gram=5, goal_num_predict=None):
 
     # Find the start position of a complete token
     beg = cur_len + l_ctx
-    while beg < seg_len and not _is_start_piece(sp.IdToPiece(seg[beg].item())):
+    while beg < seg_len:
       beg += 1
     if beg >= seg_len:
       break
@@ -495,7 +529,8 @@ def create_tfrecords(save_dir, basename, data, bsz_per_host, seq_len,
       tgt = np.concatenate([tgt, a_target, b_target, cls_array, cls_array])
       assert tgt.shape[0] == seq_len
 
-      is_masked = np.concatenate([mask_0, mask_1], 0)
+      is_masked_bool = np.concatenate([mask_0, mask_1], 0)
+      is_masked = np.array([1 if each_mask == True else 0 for each_mask in is_masked_bool])
       if FLAGS.num_predict is not None:
         assert np.sum(is_masked) == FLAGS.num_predict
 
@@ -874,13 +909,13 @@ def get_input_fn(
 
 if __name__ == "__main__":
   FLAGS = flags.FLAGS
-  flags.DEFINE_bool("use_tpu", True, help="whether to use TPUs")
+  flags.DEFINE_bool("use_tpu", False, help="whether to use TPUs")
   flags.DEFINE_integer("bsz_per_host", 32, help="batch size per host.")
   flags.DEFINE_integer("num_core_per_host", 8, help="num TPU cores per host.")
 
-  flags.DEFINE_integer("seq_len", 512,
+  flags.DEFINE_integer("seq_len", 256,
                        help="Sequence length.")
-  flags.DEFINE_integer("reuse_len", 256,
+  flags.DEFINE_integer("reuse_len", 128,
                        help="Number of token that can be reused as memory. "
                        "Could be half of `seq_len`.")
   flags.DEFINE_bool("uncased", True, help="Use uncased inputs or not.")
@@ -897,7 +932,7 @@ if __name__ == "__main__":
   flags.DEFINE_integer("num_predict", default=85,
                        help="Num of tokens to predict.")
 
-  flags.DEFINE_string("input_glob", "data/example/*.txt",
+  flags.DEFINE_string("input_glob", "./chord_data/chord_merge_simplified_transposed.txt",
                       help="Input file glob.")
   flags.DEFINE_string("sp_path", "", help="Path to the sentence piece model.")
   flags.DEFINE_string("save_dir", "proc_data/example",
