@@ -113,13 +113,15 @@ def format_filename(prefix, bsz_per_host, seq_len, bi_data, suffix,
 
 
 def _create_data(idx, input_paths):
+    #1 function
   # Load sentence-piece model
   # sp = spm.SentencePieceProcessor()
   # sp.Load(FLAGS.sp_path)
 
   input_shards = []
   total_line_cnt = 0
-  for input_path in input_paths:
+  for input_path in input_paths:  # the chords for each song should be saved as a separate file as one sentence!
+      # otherwise the boundary for each song is discarded!
     input_data, sent_ids = [], []
     sent_id, line_cnt = True, 0
     tf.logging.info("Processing %s", input_path)
@@ -169,9 +171,10 @@ def _create_data(idx, input_paths):
 
   input_data_list, sent_ids_list = [], []
   prev_sent_id = None
-  for perm_idx in perm_indices:
+  for perm_idx in perm_indices: # 这里是改变歌曲顺序，而不是和弦顺序！
     input_data, sent_ids = input_shards[perm_idx]
     # make sure the `send_ids[0] == not prev_sent_id`
+    # 这里标记出每首歌的边界
     if prev_sent_id is not None and sent_ids[0] == prev_sent_id:
       sent_ids = np.logical_not(sent_ids)
 
@@ -181,7 +184,7 @@ def _create_data(idx, input_paths):
 
     # update `prev_sent_id`
     prev_sent_id = sent_ids[-1]
-
+  # flatten both randomized chord and sentence labels! 这里是以歌曲为单位组织，歌曲是乱序的
   input_data = np.concatenate(input_data_list)
   sent_ids = np.concatenate(sent_ids_list)
 
@@ -245,13 +248,26 @@ def create_data(_):
   tf.logging.info("Use glob: %s", FLAGS.input_glob)
   tf.logging.info("Find %d files: %s", len(file_paths), file_paths)
 
-  task_file_paths = file_paths[FLAGS.task::FLAGS.num_task]
+  if len(file_paths) == 1:  # only one file, need to decompose it into many
+      file_paths_new = []
+      if not os.path.exists('./chord_data/files'):
+          os.mkdir('./chord_data/files')
+      fn = open(file_paths[0], 'r')
+      for ID, each_chord_line in enumerate(fn.readlines()):
+          f_write = open(os.path.join('./chord_data/files', str(ID) + '.txt'), 'w')
+          print(each_chord_line, file=f_write)
+          f_write.close()
+          file_paths_new.append(os.path.join('./chord_data/files', str(ID) + '.txt'))
+      fn.close()
+      task_file_paths = file_paths_new[FLAGS.task::FLAGS.num_task]
+  else:
+      task_file_paths = file_paths[FLAGS.task::FLAGS.num_task]
   if not task_file_paths:
     tf.logging.info("Exit: task %d has no file to process.", FLAGS.task)
     return
 
-  tf.logging.info("Task %d process %d files: %s",
-                  FLAGS.task, len(task_file_paths), task_file_paths)
+  tf.logging.info("Task %d process %d files: for example, %s",
+                  FLAGS.task, len(task_file_paths), task_file_paths[0])
   record_info = _create_data(FLAGS.task, task_file_paths)
 
   record_prefix = "record_info-{}-{}-{}".format(
@@ -297,7 +313,7 @@ def _split_a_and_b(data, sent_ids, begin_idx, tot_len, extend_target=False):
     return None
 
   end_idx = begin_idx + 1
-  cut_points = []
+  cut_points = []  # 找到歌曲边界！
   while end_idx < data_len:
     if sent_ids[end_idx] != sent_ids[end_idx - 1]:
       if end_idx - begin_idx >= tot_len: break
@@ -324,21 +340,21 @@ def _split_a_and_b(data, sent_ids, begin_idx, tot_len, extend_target=False):
 
     new_begin = a_end
   else:
-    label = 1
-    a_end = random.choice(cut_points)
+    label = 1 # TODO: label?
+    a_end = random.choice(cut_points)  # the remnant of a song
     b_begin = a_end
-    b_end = end_idx
+    b_end = end_idx  # the whole next song
 
     new_begin = b_end
 
-  while a_end - a_begin + b_end - b_begin > tot_len:
+  while a_end - a_begin + b_end - b_begin > tot_len: # TODO: ???
     if a_end - a_begin > b_end - b_begin:
       # delete the right side only for the LM objective
       a_end -= 1
     else:
       b_end -= 1
 
-  ret = [data[a_begin: a_end], data[b_begin: b_end], label, new_begin]
+  ret = [data[a_begin: a_end], data[b_begin: b_end], label, new_begin]  # 头两个就是不同两首歌的片段
 
   if extend_target:
     if a_end >= data_len or b_end >= data_len:
@@ -346,8 +362,8 @@ def _split_a_and_b(data, sent_ids, begin_idx, tot_len, extend_target=False):
                       "a_end %d or b_end %d >= data_len %d",
                       a_end, b_end, data_len)
       return None
-    a_target = data[a_begin + 1: a_end + 1]
-    b_target = data[b_begin: b_end + 1]
+    a_target = data[a_begin + 1: a_end + 1]  # a是next chord
+    b_target = data[b_begin: b_end + 1]  # b是整体多一个chord
     ret.extend([a_target, b_target])
 
   return ret
@@ -436,13 +452,13 @@ def create_tfrecords(save_dir, basename, data, bsz_per_host, seq_len,
   if bi_data:
     assert bsz_per_host % (2 * FLAGS.num_core_per_host) == 0
     fwd_data, fwd_sent_ids = batchify(data, bsz_per_host // 2, sent_ids)
-
+    # 正向data，边界由send ids给出
     fwd_data = fwd_data.reshape(num_core, 1, bsz_per_core // 2, -1)
     fwd_sent_ids = fwd_sent_ids.reshape(num_core, 1, bsz_per_core // 2, -1)
-
+    # 反向data
     bwd_data = fwd_data[:, :, :, ::-1]
     bwd_sent_ids = fwd_sent_ids[:, :, :, ::-1]
-
+    # 整体data为正反向的结合
     data = np.concatenate(
         [fwd_data, bwd_data], 1).reshape(bsz_per_host, -1)
     sent_ids = np.concatenate(
@@ -486,10 +502,11 @@ def create_tfrecords(save_dir, basename, data, bsz_per_host, seq_len,
     all_ok = True
     features = []
     for idx in range(bsz_per_host):
+        # 嗯？和GPT一样？
       inp = data[idx, i: i + reuse_len]
       tgt = data[idx, i + 1: i + reuse_len + 1]
 
-      results = _split_a_and_b(
+      results = _split_a_and_b(  # TODO: 这个有点没看懂
           data[idx],
           sent_ids[idx],
           begin_idx=i + reuse_len,
@@ -510,7 +527,7 @@ def create_tfrecords(save_dir, basename, data, bsz_per_host, seq_len,
       else:
         num_predict_1 = FLAGS.num_predict // 2
         num_predict_0 = FLAGS.num_predict - num_predict_1
-      mask_0 = _sample_mask(sp, inp, reverse=reverse,
+      mask_0 = _sample_mask(sp, inp, reverse=reverse, # TODO: 这个有点没看懂
                             goal_num_predict=num_predict_0)
       mask_1 = _sample_mask(sp, np.concatenate([a_data, sep_array, b_data,
                                                 sep_array, cls_array]),
