@@ -20,7 +20,7 @@ import sentencepiece as spm
 
 
 special_symbols = {
-    "<unk>"  : 0,
+    "X"  : 0,
     "<s>"    : 1,
     "</s>"   : 2,
     "<cls>"  : 3,
@@ -56,11 +56,16 @@ def get_root_quality_combination(idx2voca_chord, root_list, quality_list):
 
 def idx2voca_chord_simplified():
     idx2voca_chord = {}
-    idx2voca_chord[52] = 'PAD'
-    idx2voca_chord[51] = 'EOS'
-    idx2voca_chord[50] = 'BOS'
-    idx2voca_chord[49] = 'N'
-    idx2voca_chord[48] = 'X'
+    idx2voca_chord[57] = 'X'
+    idx2voca_chord[56] = '<s>'
+    idx2voca_chord[55] = '</s>'
+    idx2voca_chord[54] = '<cls>'
+    idx2voca_chord[53] = '<sep>'
+    idx2voca_chord[52] = '<pad>'
+    idx2voca_chord[51] = '<mask>'
+    idx2voca_chord[50] = '<eod>'
+    idx2voca_chord[49] = '<eop>'
+    idx2voca_chord[48] = 'N'
     idx2voca_chord = get_root_quality_combination(idx2voca_chord, root_list, quality_list_simplified)
     return idx2voca_chord
 
@@ -69,7 +74,7 @@ chord_dict = {ch: i for i, ch in enumerate(chars)}
 
 
 VOCAB_SIZE = 32000
-UNK_ID = special_symbols["<unk>"]
+UNK_ID = special_symbols["X"]
 CLS_ID = special_symbols["<cls>"]
 SEP_ID = special_symbols["<sep>"]
 MASK_ID = special_symbols["<mask>"]
