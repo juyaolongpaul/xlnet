@@ -12,7 +12,7 @@ import numpy as np
 from absl import flags
 import absl.logging as _logging  # pylint: disable=unused-import
 
-import tensorflow as tf
+import tensorflow._api.v2.compat.v1 as tf
 
 import data_utils
 import model_utils
@@ -31,9 +31,9 @@ flags.DEFINE_bool("use_tpu", default=False,
 # Experiment (data/checkpoint/directory) config
 flags.DEFINE_integer("num_passes", default=1,
       help="Number of passed used for training.")
-flags.DEFINE_string("record_info_dir", default=None,
+flags.DEFINE_string("record_info_dir", default='./proc_data/example/tfrecords/',
       help="Path to local directory containing `record_info-lm.json`.")
-flags.DEFINE_string("model_dir", default=None,
+flags.DEFINE_string("model_dir", default='.',
       help="Estimator model_dir.")
 flags.DEFINE_string("init_checkpoint", default=None,
       help="checkpoint path for initializing the model.")
@@ -56,7 +56,7 @@ flags.DEFINE_float("weight_decay", default=0.0,
       help="weight decay")
 
 # Training config
-flags.DEFINE_integer("train_batch_size", default=16,
+flags.DEFINE_integer("train_batch_size", default=32,
       help="Size of train batch.")
 flags.DEFINE_integer("train_steps", default=100000,
       help="Total number of training steps.")
@@ -66,9 +66,9 @@ flags.DEFINE_integer("save_steps", default=None,
       help="number of steps for model checkpointing.")
 
 # Data config
-flags.DEFINE_integer('seq_len', default=0,
+flags.DEFINE_integer('seq_len', default=256,
       help='Sequence length for pretraining.')
-flags.DEFINE_integer('reuse_len', default=0,
+flags.DEFINE_integer('reuse_len', default=128,
       help="How many tokens to be reused in the next batch. "
       "Could be half of seq_len")
 flags.DEFINE_bool("bi_data", default=True,
@@ -77,11 +77,11 @@ flags.DEFINE_integer("mask_alpha", default=6,
       help="How many tokens to form a group.")
 flags.DEFINE_integer("mask_beta", default=1,
       help="How many tokens to mask within each group.")
-flags.DEFINE_integer("num_predict", default=None,
+flags.DEFINE_integer("num_predict", default=85,
       help="Number of tokens to predict in partial prediction.")
-flags.DEFINE_integer('perm_size', default=None,
+flags.DEFINE_integer('perm_size', default=64,
   help='perm size.')
-flags.DEFINE_bool("uncased", False,
+flags.DEFINE_bool("uncased", True,
       help="Use uncased inputs or not.")
 flags.DEFINE_integer("n_token", 32000, help="Vocab size")
 
@@ -95,15 +95,15 @@ flags.DEFINE_integer("clamp_len", default=-1,
 
 flags.DEFINE_integer("n_layer", default=6,
       help="Number of layers.")
-flags.DEFINE_integer("d_model", default=32,
+flags.DEFINE_integer("d_model", default=512,
       help="Dimension of the model.")
-flags.DEFINE_integer("d_embed", default=32,
+flags.DEFINE_integer("d_embed", default=256,
       help="Dimension of the embeddings.")
 flags.DEFINE_integer("n_head", default=4,
       help="Number of attention heads.")
 flags.DEFINE_integer("d_head", default=8,
       help="Dimension of each attention head.")
-flags.DEFINE_integer("d_inner", default=32,
+flags.DEFINE_integer("d_inner", default=1024,
       help="Dimension of inner hidden size in positionwise feed-forward.")
 flags.DEFINE_float("dropout", default=0.0,
       help="Dropout rate.")
@@ -321,7 +321,7 @@ def main(unused_argv):
   if not tf.gfile.Exists(FLAGS.model_dir):
     tf.gfile.MakeDirs(FLAGS.model_dir)
 
-  train("/gpu:0")
+  train("/gpu:1")
 
 
 if __name__ == "__main__":
